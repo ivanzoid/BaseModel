@@ -95,6 +95,11 @@ typedef NS_ENUM(NSUInteger, BMFileFormat)
 - (BOOL)writeToFile:(NSString *)path atomically:(BOOL)atomically;
 - (BOOL)writeToFile:(NSString *)path format:(BMFileFormat)format atomically:(BOOL)atomically;
 
+//loading and saving the model from/to NSData
++ (instancetype)instanceWithData:(NSData *)data;
+- (NSData *)exportToData;
+- (NSData *)exportToDataWithFormat:(BMFileFormat)format;
+
 //get model properties
 + (NSArray *)allPropertyKeys;
 + (NSArray *)codablePropertyKeys;

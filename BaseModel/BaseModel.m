@@ -764,87 +764,29 @@ static const NSUInteger BMStringDescriptionMaxLength = 16;
         
         if (data)
         {
-            //attempt to guess file type
-            char byte = *((char *)data.bytes);
-            if (byte == 'T')
-            {
-                //attempt to deserialise using FastCoding
-                Class coderClass = NSClassFromString(@"FastCoder");
-                object = ((id (*)(id, SEL, id))objc_msgSend)(coderClass, NSSelectorFromString(@"objectWithData:"), data);
-            }
-            
-            if (!object && (byte == '{' || byte == '[' || byte == '"' || byte == 'n'))
-            {
-                //attempt to deserialise data as json
-                object = [NSJSONSerialization JSONObjectWithData:data
-                                                             options:NSJSONReadingAllowFragments
-                                                               error:NULL];
-            }
-            
-            if (!object)
-            {
-                //attempt to deserialise data as a plist
-                NSPropertyListFormat format;
-                NSPropertyListReadOptions options = NSPropertyListMutableContainersAndLeaves;
-                object = [NSPropertyListSerialization propertyListWithData:data options:options format:&format error:NULL];
-            }
-            
-            if (!object)
-            {
-                //data is not a known serialisation format
-                object = data;
-            }
+            object = [[self class] deserializeFromData:data];
         }
     }
+    
+    BOOL cacheAsData = YES;
+    
+    object = [self initWithDeserializedObject:object andData:data cacheAsData:&cacheAsData];
     
     //success?
     if (object)
     {
-        //check if object is an NSCoded archive
-        if ([object respondsToSelector:@selector(objectForKey:)])
+        if (isResourceFile)
         {
-            if (object[@"$archiver"])
+            if (cacheAsData)
             {
-                if (isResourceFile)
-                {
-                    //cache data for next time
-                    [cachedResourceFiles setObject:data forKey:filePath];
-                }
-                
-                //unarchive object
-                Class coderClass = NSClassFromString(@"CryptoCoder");
-                if (!coderClass)
-                {
-                    coderClass = [NSKeyedUnarchiver class];
-                }
-                object = [coderClass unarchiveObjectWithData:data];
+                //cache data for next time
+                [cachedResourceFiles setObject:data forKey:filePath];
             }
             else
             {
-                if (isResourceFile)
-                {
-                    //cache object for next time
-                    [cachedResourceFiles setObject:object forKey:filePath];
-                }
-                
-                //unarchive object
-                Class HRCoderClass = NSClassFromString(@"HRCoder");
-                NSString *classNameKey = [HRCoderClass valueForKey:@"classNameKey"];
-                if (object[classNameKey])
-                {
-                    SEL selector = NSSelectorFromString(@"unarchiveObjectWithPlistOrJSON:");
-                    if (![HRCoderClass respondsToSelector:selector])
-                    {
-                        [NSException raise:BaseModelException format:@"This version of HRCoder is not compatibile with this version BaseModel. Please ensure you have upgraded both libraries to the latest version."];
-                    }
-                    object = ((id (*)(id, SEL, id))objc_msgSend)(HRCoderClass, selector, object);
-                }
+                //cache object for next time
+                [cachedResourceFiles setObject:object forKey:filePath];
             }
-        }
-        else if (isResourceFile)
-        {
-            //cache object for next time
-            [cachedResourceFiles setObject:object forKey:filePath];
         }
         
         if ([object isKindOfClass:[self class]])
@@ -864,6 +806,124 @@ static const NSUInteger BMStringDescriptionMaxLength = 16;
     
     //failed to load
     return ((self = nil));
+}
+
+- (id) initWithData:(NSData *)data
+{
+    self = [[self class] deserializeFromData:data];
+    self = [self initWithDeserializedObject:self andData:data cacheAsData:nil];
+
+    //success?
+    if (self)
+    {
+        if ([self isKindOfClass:[self class]])
+        {
+            //return object
+            return self;
+        }
+
+        //load with object
+        return ((self = [self initWithObject:self]));
+    }
+
+    return nil;
+}
+
++ (id) deserializeFromData:(NSData *)data
+{
+    id object = nil;
+    
+    //attempt to guess file type
+    char byte = *((char *)data.bytes);
+    if (byte == 'T')
+    {
+        //attempt to deserialise using FastCoding
+        Class coderClass = NSClassFromString(@"FastCoder");
+        object = ((id (*)(id, SEL, id))objc_msgSend)(coderClass, NSSelectorFromString(@"objectWithData:"), data);
+    }
+    
+    if (!object && (byte == '{' || byte == '[' || byte == '"' || byte == 'n'))
+    {
+        //attempt to deserialise data as json
+        object = [NSJSONSerialization JSONObjectWithData:data
+                                                 options:NSJSONReadingAllowFragments
+                                                   error:NULL];
+    }
+    
+    if (!object)
+    {
+        //attempt to deserialise data as a plist
+        NSPropertyListFormat format;
+        NSPropertyListReadOptions options = NSPropertyListMutableContainersAndLeaves;
+        object = [NSPropertyListSerialization propertyListWithData:data options:options format:&format error:NULL];
+    }
+    
+    if (!object)
+    {
+        //data is not a known serialisation format
+        object = data;
+    }
+
+    return object;
+}
+
+- (instancetype)initWithDeserializedObject:(id)object andData:(NSData *)data cacheAsData:(BOOL *)cacheAsDataPtr
+{
+    //check if object is an NSCoded archive
+    if ([object respondsToSelector:@selector(objectForKey:)])
+    {
+        if (object[@"$archiver"])
+        {
+            if (cacheAsDataPtr) {
+                *cacheAsDataPtr = YES;
+            }
+            
+            //unarchive object
+            Class coderClass = NSClassFromString(@"CryptoCoder");
+            if (!coderClass)
+            {
+                coderClass = [NSKeyedUnarchiver class];
+            }
+            object = [coderClass unarchiveObjectWithData:data];
+        }
+        else
+        {
+            if (cacheAsDataPtr) {
+                *cacheAsDataPtr = NO;
+            }
+            
+            //unarchive object
+            Class HRCoderClass = NSClassFromString(@"HRCoder");
+            NSString *classNameKey = [HRCoderClass valueForKey:@"classNameKey"];
+            if (object[classNameKey])
+            {
+                SEL selector = NSSelectorFromString(@"unarchiveObjectWithPlistOrJSON:");
+                if (![HRCoderClass respondsToSelector:selector])
+                {
+                    [NSException raise:BaseModelException format:@"This version of HRCoder is not compatibile with this version BaseModel. Please ensure you have upgraded both libraries to the latest version."];
+                }
+                object = ((id (*)(id, SEL, id))objc_msgSend)(HRCoderClass, selector, object);
+            }
+        }
+    } else {
+        if (cacheAsDataPtr) {
+            *cacheAsDataPtr = YES;
+        }
+    }
+    
+    if ([object isKindOfClass:[self class]])
+    {
+        //return object
+        return ((self = object));
+    }
+    
+    //load with object
+    return ((self = [self initWithObject:object]));
+}
+
++ (instancetype)instanceWithData:(NSData *)data
+{
+    return [[self alloc] initWithData:data];
 }
 
 #pragma mark -
@@ -964,9 +1024,27 @@ static const NSUInteger BMStringDescriptionMaxLength = 16;
     }
 }
 
-- (BOOL)writeToFile:(NSString *)path format:(BMFileFormat)format atomically:(BOOL)atomically
+- (NSData *)exportToData
+{
+    BMFileFormat saveFormat = [[self class] saveFormat];
+    
+    if (saveFormat == BMFileFormatUserDefaults)
+    {
+        [NSException raise:BaseModelException format:@"You can't export as data model with saveFormat = BMFileFormatUserDefaults. Use other save format."];
+    }
+    else if (saveFormat == BMFileFormatKeychain)
+    {
+        [NSException raise:BaseModelException format:@"You can't export as data model with saveFormat = BMFileFormatKeychain. Use other save format."];
+    }
+    
+    NSData *data = [self exportToDataWithFormat:saveFormat];
+    return data;
+}
+
+- (NSData *)exportToDataWithFormat:(BMFileFormat)format
 {
     NSData *data = nil;
+    
     switch (format)
     {
         case BMFileFormatKeyedArchive:
@@ -1027,7 +1105,14 @@ static const NSUInteger BMStringDescriptionMaxLength = 16;
             break;
         }
     }
-    
+
+    return data;
+}
+
+- (BOOL)writeToFile:(NSString *)path format:(BMFileFormat)format atomically:(BOOL)atomically
+{
+    NSData *data = [self exportToDataWithFormat:format];
+
     return [data writeToFile:[[self class] BM_saveFilePath:path] atomically:atomically];
 }
 
